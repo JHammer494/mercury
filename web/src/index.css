@@ -1,0 +1,39 @@
+html{
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0
+}
+
+@media print {
+
+  @page {
+    margin: 0;
+    page-break-inside: avoid;
+    overflow: visible !important;
+    size: letter landscape;
+  }
+
+  body {
+    display: block !important;
+    width: 3300px !important;
+    color: black !important;
+  }
+
+  nav, .noPrint {
+    display: none !important
+  }
+
+  .dataGrid {
+    display: block !important;
+    width: 100%!important;
+    scale: 100% !important;
+    color:black !important;
+  }
+  .MuiBackdrop-root.css-i9fmh8-MuiBackdrop-root-MuiModal-backdrop {
+    opacity: 1;
+    background-color: white
+
+  }
+}

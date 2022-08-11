@@ -1,0 +1,337 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+// Define your own datamodels here and run `yarn redwood prisma migrate dev`
+// to create migrations for them and apply to your dev DB.
+
+// mock PEX data
+model PexSortie {
+  id               Int      @id @default(autoincrement())
+  projected_launch DateTime @db.Timestamp(0)
+  projected_land   DateTime @db.Timestamp(0)
+  unit_id          Int?
+  required_fuel    Int
+  config           String
+  call_sign        String
+  aircraft_id      Int?
+  is_quickturn     Boolean?
+  is_ercc          Boolean?
+}
+
+// Internal tables
+model FlyingSchedule {
+  id           Int      @id @default(autoincrement())
+  published_on DateTime @db.Timestamp(0)
+}
+
+model Sortie {
+  // these columns pull from PEX
+  id               Int      @id @default(autoincrement())
+  projected_launch DateTime @db.Timestamp(0)
+  projected_land   DateTime @db.Timestamp(0)
+  unit             Unit     @relation(fields: [unit_id], references: [id])
+  unit_id          Int
+  required_fuel    Int
+  config           String
+  call_sign        String
+  is_quickturn     Boolean?
+  is_ercc          Boolean?
+
+  // these columns added within Mercury
+  aircraft        Aircraft?     @relation(fields: [aircraft_id], references: [id])
+  aircraft_id     Int?
+  crew_ready      DateTime?     @db.Timestamp(0)
+  crew_show       DateTime?     @db.Timestamp(0)
+  engine_start    DateTime?     @db.Timestamp(0)
+  taxi            DateTime?     @db.Timestamp(0)
+  actual_launch   DateTime?     @db.Timestamp(0)
+  actual_land     DateTime?     @db.Timestamp(0)
+  engine_shutdown DateTime?     @db.Timestamp(0)
+  land_status     Int?
+  debrief_forms   DebriefForm[]
+  is_published    Boolean      @default(false)
+}
+
+model SpareFlyer {
+  id           Int      @id @default(autoincrement())
+  aircraft     Aircraft @relation(fields: [aircraft_id], references: [id])
+  aircraft_id  Int
+  date         DateTime @db.Date // spare flyer status is for entire day, no time required
+  is_published Boolean? @default(false)
+
+  @@unique(fields: [aircraft_id, date])
+}
+
+model Unit {
+  id         Int        @id
+  name       String     @unique
+  geo_loc    GeoLoc     @relation(fields: [geo_loc_id], references: [id])
+  geo_loc_id String     @db.Char(4)
+  sorties    Sortie[]
+  aircraft   Aircraft[]
+  jcns       JCN[]
+  shops      Shop[]
+}
+
+model GeoLoc {
+  id       String     @id @db.Char(4)
+  name     String
+  units    Unit[]
+  aircraft Aircraft[]
+}
+
+model Aircraft {
+  name                 String?
+  id                   Int      @id // tail number; dash will be displayed in frontend logic
+  fuel_quant           Int
+  status               Status   @relation(fields: [status_id], references: [id])
+  status_id            String
+  parking_location     String?
+  geo_loc              GeoLoc   @relation(fields: [geo_loc_id], references: [id])
+  geo_loc_id           String   @db.Char(4)
+  preflight_inspection DateTime @db.Timestamp(0)
+  flight_hours         Float
+  mx_priority          Int?
+  all_jcns             JCN[]    @relation(name: "AcAllJCNs")
+  driver_jcn           JCN?     @relation(name: "AcDriverJCN", fields: [driver_jcn_unit, driver_jcn_id], references: [unit_id, jcn_id])
+  driver_jcn_unit      Int?
+  driver_jcn_id        String?  @db.Char(9)
+  unit                 Unit     @relation(fields: [unit_id], references: [id])
+  unit_id              Int
+  config               String
+  airframe             Airframe @relation(fields: [airframe_id], references: [id])
+  airframe_id          String
+  cur_oxygen           Int
+  sorties              Sortie[]
+
+  aircraft_notes AircraftNote[]
+
+  hourly_inspection    HourlyInspection[]
+  calendar_inspections CalendarInspection[]
+  SpareFlyer           SpareFlyer[]
+
+  // to satisfy Prisma unique criterion on relation to JCN
+  @@unique(fields: [unit_id, id])
+  @@unique(fields: [driver_jcn_unit, driver_jcn_id])
+}
+
+model Status {
+  id          String     @id
+  description String
+  aircraft    Aircraft[]
+}
+
+model Airframe {
+  id       String         @id
+  aircraft Aircraft[]
+  wucs     WorkUnitCode[]
+}
+
+model JCN {
+  id Int @id @default(autoincrement()) // required for Redwood GraphQL CRUD
+
+  jcn_id                String         @db.Char(9)
+  aircraft              Aircraft       @relation(name: "AcAllJCNs", fields: [unit_id, aircraft_id], references: [unit_id, id])
+  aircraft_id           Int
+  unit                  Unit           @relation(fields: [unit_id], references: [id])
+  unit_id               Int
+  driving_ac            Aircraft?      @relation(name: "AcDriverJCN")
+  work_unit_code        WorkUnitCode   @relation(fields: [work_unit_code_id], references: [id])
+  work_unit_code_id     String         @db.VarChar(32)
+  discrepancy           String         @db.Text
+  symbol                String         @db.Char(1)
+  when_discovered       WhenDiscovered @relation(fields: [when_discovered_id], references: [id])
+  when_discovered_id    String         @db.Char(1)
+  is_repeat             Boolean        @default(false)
+  is_recur              Boolean        @default(false)
+  priority              Int?
+  etic                  DateTime?      @db.Timestamp(0)
+  shop                  Shop           @relation(fields: [shop_id], references: [id])
+  shop_id               String         @db.Char(5)
+  discovered_by_user    User           @relation(fields: [discovered_by_user_id], references: [id])
+  discovered_by_user_id Int
+  when_created          DateTime       @default(now()) @db.Timestamp(0)
+  when_modified         DateTime?      @db.Timestamp(0)
+  when_cleared          DateTime?      @db.Timestamp(0)
+  jcn_wces              WCE[]
+  AircraftNote          AircraftNote[]
+
+  // Combination of unit + JCN must be unique
+  @@unique(name: "UnitJcn", fields: [unit_id, jcn_id])
+}
+
+model WCE {
+  id Int @id @default(autoincrement()) // required for Redwood GraphQL CRUD
+
+  wce_id  Int
+  jcn     JCN    @relation(fields: [unit_id, jcn_id], references: [unit_id, jcn_id])
+  jcn_id  String @db.Char(9)
+  unit_id Int
+
+  work_unit_code        WorkUnitCode   @relation(fields: [work_unit_code_id], references: [id])
+  work_unit_code_id     String         @db.VarChar(32)
+  discrepancy           String         @db.Text
+  symbol                String         @db.Char(1) // Should this be a foreign key?
+  when_discovered       WhenDiscovered @relation(fields: [when_discovered_id], references: [id])
+  when_discovered_id    String         @db.Char(1)
+  type_mx               TypeMx?        @relation(fields: [type_mx_id], references: [id])
+  type_mx_id            String?        @db.Char(1)
+  action_taken          ActionTaken?   @relation(fields: [action_taken_id], references: [id])
+  action_taken_id       String?        @db.Char(1) // Should this be a foreign key?
+  corrective_action     String?        @db.Text
+  discovered_by_user    User           @relation(name: "WceDiscoveredByUser", fields: [discovered_by_user_id], references: [id])
+  discovered_by_user_id Int
+  corrected_by_user     User?          @relation(name: "WceCorrectedByUser", fields: [corrected_by_user_id], references: [id])
+  corrected_by_user_id  Int?
+  inspected_by_user     User?          @relation(name: "WceInspectedByUser", fields: [inspected_by_user_id], references: [id])
+  inspected_by_user_id  Int?
+  shop                  Shop           @relation(fields: [shop_id], references: [id])
+  shop_id               String         @db.Char(5)
+  how_mal               HowMal?        @relation(fields: [how_mal_id], references: [id])
+  how_mal_id            String?        @db.Char(3)
+  when_created          DateTime       @default(now()) @db.Timestamp(0)
+  when_modified         DateTime?      @db.Timestamp(0)
+  start_time            DateTime?      @db.Timestamp(0)
+  stop_time             DateTime?      @db.Timestamp(0)
+
+  // Combination of unit + JCN + WCE must be unique
+  @@unique(name: "UnitJcnWce", fields: [unit_id, jcn_id, wce_id])
+}
+
+model TypeMx {
+  id          String @id @db.Char(1)
+  description String
+  wces        WCE[]
+}
+
+model WorkUnitCode {
+  id          String   @id @db.VarChar(32)
+  description String
+  airframe    Airframe @relation(fields: [airframe_id], references: [id])
+  airframe_id String
+  jcns        JCN[]
+  wces        WCE[]
+}
+
+model WhenDiscovered {
+  id          String @id @db.Char(1)
+  description String
+  jcns        JCN[]
+  wces        WCE[]
+}
+
+model HowMal {
+  id          String @id @db.Char(3)
+  description String
+  wces        WCE[]
+}
+
+model Shop {
+  id          String @id @db.Char(5) // CRIT: Are shop codes globally unique, or are they repeated across units?
+  unit        Unit   @relation(fields: [unit_id], references: [id])
+  unit_id     Int
+  description String
+  jcns        JCN[]
+  wces        WCE[]
+  users       User[]
+}
+
+model Role {
+  id    String @id
+  users User[]
+}
+
+// table User generated from dbAuth
+
+model User {
+  id                  Int       @id @default(autoincrement())
+  first_name          String?
+  last_name           String?
+  email               String    @unique
+  hashedPassword      String
+  salt                String
+  resetToken          String?
+  resetTokenExpiresAt DateTime? @db.Timestamp(0)
+  role                Role      @relation(fields: [roles], references: [id])
+  roles               String    @default("boot")
+  shop                Shop?     @relation(fields: [shop_id], references: [id])
+  shop_id             String?   @db.Char(5)
+  jcns_discovered     JCN[]
+  wces_discovered     WCE[]     @relation(name: "WceDiscoveredByUser")
+  wces_corrected      WCE[]     @relation(name: "WceCorrectedByUser")
+  wces_inspected      WCE[]     @relation(name: "WceInspectedByUser")
+
+  aircraft_notes AircraftNote[]
+  personal_notes PersonalNote[]
+  Debrief_forms  DebriefForm[]
+}
+
+model AircraftNote {
+  id          Int      @id @default(autoincrement())
+  note        String
+  timestamp   DateTime @default(now()) @db.Timestamp(0)
+  user        User     @relation(fields: [user_id], references: [id])
+  user_id     Int
+  aircraft    Aircraft @relation(fields: [aircraft_id], references: [id])
+  aircraft_id Int
+  jcn         JCN?     @relation(fields: [jcn_id], references: [id])
+  jcn_id      Int?
+}
+
+model PersonalNote {
+  id        Int      @id @default(autoincrement())
+  note      String
+  timestamp DateTime @default(now()) @db.Timestamp(0)
+  user      User     @relation(fields: [user_id], references: [id])
+  user_id   Int
+}
+
+model HourlyInspection {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  inspection_details String
+  frequency          Float
+  last_completed     Float
+  aircraft           Aircraft @relation(fields: [aircraft_id], references: [id])
+  aircraft_id        Int
+}
+
+model CalendarInspection {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  inspection_details String
+  frequency          Float
+  last_completed     DateTime @db.Timestamp(0)
+  aircraft           Aircraft @relation(fields: [aircraft_id], references: [id])
+  aircraft_id        Int
+}
+
+model DebriefForm {
+  id                  Int      @id @default(autoincrement())
+  landing_fuel        Float
+  bird_strike         Boolean
+  air_refuel_callsign String?
+  air_refuel_amount   Float?
+  drag_chute          Boolean
+  hung_store          Boolean
+  in_flight_emergency Boolean
+  bomb_door_actuation Boolean
+  sortie              Sortie   @relation(fields: [sortie_id], references: [id])
+  sortie_id           Int
+  user                User     @relation(fields: [user_id], references: [id])
+  user_id             Int
+  submitted           DateTime @default(now()) @db.Timestamp(0)
+}
+
+model ActionTaken {
+  id          String @id
+  description String
+  WCE         WCE[]
+}

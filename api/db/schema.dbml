@@ -1,0 +1,194 @@
+// FOR REFERENCE ONLY
+// generated with https://dbdiagram.io/d/62a9eb1e9921fe2a961159ad
+
+Project Mercury {
+  database_type: 'PostgreSQL'
+}
+
+// mock PEX data
+
+Table pex_sorties {
+  id int [pk, unique, not null]
+  projected_launch datetime [not null]
+  projected_land datetime [not null]
+  unit_id int [not null]
+  required_fuel int [not null]
+  config string [not null]
+}
+
+// internal tables
+
+Table sorties {
+  // these columns pull from PEX
+  id int [pk]
+  projected_launch datetime [not null]
+  projected_land datetime [not null]
+  unit_id int [not null]
+  required_fuel int
+  config string [not null]
+
+  // these columns added within Mercury
+  aircraft_id int
+  crew_ready datetime
+  crew_show datetime
+  engine_start datetime
+  taxi datetime
+  actual_launch datetime
+  actual_land datetime
+  engine_shutdown datetime
+  land_status int
+}
+
+Ref: sorties.unit_id > units.id
+Ref: sorties.aircraft_id > aircrafts.id
+
+Table type_mxs {
+  id char(1) [pk]
+  description string
+}
+
+Table work_unit_codes {
+  id char(32) [pk]
+  system string
+  description string
+  airframe_id int
+}
+
+Ref: work_unit_codes.airframe_id > airframes.id
+
+Table airframes {
+  id string [pk]
+}
+
+Table when_discovereds {
+  id char(1) [pk]
+  description string
+}
+
+Table units {
+  id int [pk, increment]
+  name string
+  geo_loc_id char(4)
+}
+
+Ref: units.geo_loc_id > geo_locs.id
+
+Table statuses {
+  id string [pk]
+  description string
+}
+
+
+Table aircrafts {
+  id int [pk, unique, not null] // tail number
+  fuel_quant int
+  status_id string
+  parking_location int
+  geo_loc_id char(4)
+  preflight_inspection datetime
+  airframe_hours int
+  mx_priority int
+  status_driver int
+  unit_id int
+  config string
+  airframe_id string
+  cur_oxygen int
+}
+
+Ref: aircrafts.status_driver > jcns.id
+Ref: aircrafts.airframe_id > airframes.id
+Ref: aircrafts.unit_id > units.id
+Ref: aircrafts.status_id > statuses.id
+Ref: aircrafts.geo_loc_id > geo_locs.id
+
+Table jcns {
+  id int [pk]
+  aircraft_id int [not null]
+  work_unit_code char(32)
+  discrepancy text
+  symbol char(1)
+  when_discovered_id char(1)
+  is_repeat bool
+  is_recur bool
+  priority int
+  etic datetime
+  shop_id int
+  discovered_by int
+  when_created datetime
+  when_modified datetime
+  when_cleared datetime
+}
+
+Ref: jcns.aircraft_id > aircrafts.id
+Ref: jcns.work_unit_code > work_unit_codes.id
+Ref: jcns.when_discovered_id > when_discovereds.id
+Ref: jcns.shop_id > shops.id
+Ref: jcns.discovered_by > users.id
+
+Table wces {
+  id int [pk]
+  jcn_id int
+  work_unit_code char(32)
+  discrepancy text
+  symbol char
+  when_discovered_id char(1)
+  start_time datetime
+  stop_time datetime
+  type_mx_id char(1)
+  action_taken char(1)
+  corrective_action text
+  discovered_by int
+  corrected_by int
+  inspected_by int
+  shop_id int
+  how_mal char(3)
+  when_created datetime [default: 'now()']
+  when_modified datetime
+}
+
+Ref: wces.work_unit_code > work_unit_codes.id
+Ref: wces.type_mx_id > type_mxs.id
+Ref: wces.when_discovered_id > when_discovereds.id
+Ref: wces.shop_id > shops.id
+Ref: wces.discovered_by > users.id
+Ref: wces.corrected_by > users.id
+Ref: wces.inspected_by > users.id
+Ref: wces.how_mal > how_mals.id
+
+Table how_mals {
+  id char(3) [pk]
+  description string
+}
+
+Table shops {
+  id int [pk]
+  unit_id int
+  description string
+}
+
+Ref: shops.unit_id > units.id
+
+Table users {
+  id int [pk]
+  shop_id int
+  first_name string
+  last_name string
+  email string
+  hashed_password string
+  salt string
+  reset_token string
+  reset_token_expires_at datetime
+  role string
+}
+
+Ref: users.shop_id > shops.id
+Ref: users.role > roles.id
+
+Table roles {
+  id string [pk]
+}
+
+Table geo_locs {
+  id char(4) [pk]
+  name string
+}
